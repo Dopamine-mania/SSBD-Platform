@@ -1,0 +1,29 @@
+"""Application configuration settings."""
+
+# Database
+DATABASE_PATH = "studio.db"
+
+# Security
+PASSWORD_SALT_ROUNDS = 12
+LOGIN_LOCKOUT_ATTEMPTS = 3
+LOGIN_LOCKOUT_DURATION_MINUTES = 15
+LATE_ARRIVAL_THRESHOLD_MINUTES = 15
+
+# Billing
+MINIMUM_BOOKING_MINUTES = 30
+BILLING_ROUND_UP_MINUTES = 15
+NIGHT_HOUR_START = 22  # 22:00
+NIGHT_HOUR_END = 8     # 08:00
+NIGHT_SURCHARGE_RATE = 0.20  # 20%
+
+# Engineer rates (default, can be overridden per user)
+DEFAULT_ENGINEER_HOURLY_RATE = 100.0
+
+# UI
+WINDOW_TITLE = "声匠录音棚排班与计费系统"
+WINDOW_MIN_WIDTH = 1200
+WINDOW_MIN_HEIGHT = 800
+
+# File paths
+UPLOAD_DIR = "uploads"
+BACKUP_DIR = "backups"

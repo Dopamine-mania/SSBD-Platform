@@ -1,0 +1,26 @@
+"""Resource management widget."""
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
+from database.models import User
+
+class ResourceWidget(QWidget):
+    """Widget for managing resources."""
+
+    def __init__(self, current_user: User, parent=None):
+        super().__init__(parent)
+        self.current_user = current_user
+        self.setup_ui()
+
+    def setup_ui(self):
+        """Setup user interface."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        title = QLabel("资源管理")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+
+        info = QLabel("功能开发中...\n\n将包括:\n• 录音间管理\n• 控制室管理\n• 设备管理 (话筒/声卡等)\n• 设备照片上传\n• 状态管理 (可租/仅内用/维修中)")
+        info.setStyleSheet("font-size: 16px; color: #7f8c8d;")
+        layout.addWidget(info)
+
+        layout.addStretch()
