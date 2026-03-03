@@ -38,9 +38,9 @@ echo ""
 if [ -d "unit_tests" ]; then
     pytest unit_tests/ -v --tb=short > /tmp/unit_test_output.txt 2>&1 || true
 
-    # 解析结果
-    UNIT_PASSED=$(grep -oP '\d+(?= passed)' /tmp/unit_test_output.txt || echo "0")
-    UNIT_FAILED=$(grep -oP '\d+(?= failed)' /tmp/unit_test_output.txt || echo "0")
+    # 解析结果（使用跨平台兼容的方法）
+    UNIT_PASSED=$(grep -oE '[0-9]+ passed' /tmp/unit_test_output.txt | grep -oE '[0-9]+' || echo "0")
+    UNIT_FAILED=$(grep -oE '[0-9]+ failed' /tmp/unit_test_output.txt | grep -oE '[0-9]+' || echo "0")
 
     TOTAL_TESTS=$((TOTAL_TESTS + UNIT_PASSED + UNIT_FAILED))
     PASSED_TESTS=$((PASSED_TESTS + UNIT_PASSED))
@@ -69,9 +69,9 @@ echo ""
 if [ -d "API_tests" ] && [ "$(ls -A API_tests/*.py 2>/dev/null)" ]; then
     pytest API_tests/ -v --tb=short > /tmp/api_test_output.txt 2>&1 || true
 
-    # 解析结果
-    API_PASSED=$(grep -oP '\d+(?= passed)' /tmp/api_test_output.txt || echo "0")
-    API_FAILED=$(grep -oP '\d+(?= failed)' /tmp/api_test_output.txt || echo "0")
+    # 解析结果（使用跨平台兼容的方法）
+    API_PASSED=$(grep -oE '[0-9]+ passed' /tmp/api_test_output.txt | grep -oE '[0-9]+' || echo "0")
+    API_FAILED=$(grep -oE '[0-9]+ failed' /tmp/api_test_output.txt | grep -oE '[0-9]+' || echo "0")
 
     TOTAL_TESTS=$((TOTAL_TESTS + API_PASSED + API_FAILED))
     PASSED_TESTS=$((PASSED_TESTS + API_PASSED))

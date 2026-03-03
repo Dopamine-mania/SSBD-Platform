@@ -184,7 +184,7 @@ class CustomerWidget(QWidget):
             try:
                 with db.get_session() as session:
                     repo = CustomerRepository(session)
-                    repo.delete(customer.id)
+                    repo.delete_by_id(customer.id)
                     session.commit()
 
                 QMessageBox.information(self, "删除成功", f"客户 '{customer.name}' 已删除")

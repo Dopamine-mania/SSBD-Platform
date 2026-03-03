@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
         try:
             from utils.file_utils import restore_file
             from PySide6.QtWidgets import QFileDialog
+            from config.settings import DATABASE_PATH
             import os
 
             # 选择备份文件

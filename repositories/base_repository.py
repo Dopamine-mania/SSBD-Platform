@@ -84,6 +84,21 @@ class BaseRepository(Generic[T]):
         self.session.flush()
         logger.info(f"Deleted {self.model.__name__} with id {entity_id}")
 
+    def delete_by_id(self, entity_id: int) -> bool:
+        """Delete entity by ID.
+
+        Args:
+            entity_id: ID of entity to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        entity = self.get_by_id(entity_id)
+        if entity:
+            self.delete(entity)
+            return True
+        return False
+
     def count(self) -> int:
         """Count total entities.
 

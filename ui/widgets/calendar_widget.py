@@ -689,12 +689,12 @@ class CalendarWidget(QWidget):
                 booking_repo = BookingRepository(session)
                 booking_service = BookingService(booking_repo)
 
-                # 计算上周同一天的日期
-                last_week_date = self.current_date.addDays(-7)
+                # 计算上周同一天的日期（使用 timedelta）
+                last_week_date = self.current_date - timedelta(days=7)
 
                 # 获取上周同一天的所有预约
-                last_week_start = datetime.combine(last_week_date.toPython(), datetime.min.time())
-                last_week_end = datetime.combine(last_week_date.toPython(), datetime.max.time())
+                last_week_start = datetime.combine(last_week_date, datetime.min.time())
+                last_week_end = datetime.combine(last_week_date, datetime.max.time())
 
                 last_week_bookings = booking_repo.get_by_date_range(last_week_start, last_week_end)
 
@@ -702,7 +702,7 @@ class CalendarWidget(QWidget):
                     QMessageBox.information(
                         self,
                         "无可复制预约",
-                        f"上周 {last_week_date.toString('yyyy-MM-dd')} 没有预约记录"
+                        f"上周 {last_week_date.strftime('%Y-%m-%d')} 没有预约记录"
                     )
                     return
 

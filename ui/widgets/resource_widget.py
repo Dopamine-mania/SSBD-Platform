@@ -256,7 +256,7 @@ class ResourceWidget(QWidget):
             try:
                 with db.get_session() as session:
                     repo = ResourceRepository(session)
-                    repo.delete(resource.id)
+                    repo.delete_by_id(resource.id)
                     session.commit()
 
                 QMessageBox.information(self, "删除成功", f"资源 '{resource.name}' 已删除")
