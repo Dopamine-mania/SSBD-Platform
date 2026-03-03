@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  ssbd-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ssbd-platform
+    volumes:
+      - ./studio.db:/app/studio.db
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - QT_QPA_PLATFORM=${QT_QPA_PLATFORM:-xcb}
+    network_mode: host
+    stdin_open: true
+    tty: true
+    restart: unless-stopped

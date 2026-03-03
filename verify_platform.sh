@@ -110,7 +110,9 @@ REQUIRED_PACKAGES=("PySide6" "SQLAlchemy" "bcrypt" "pytest")
 ALL_INSTALLED=true
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
-    if python3 -c "import ${package,,}" 2>/dev/null; then
+    # 使用 tr 命令转换为小写，兼容 bash 3
+    package_lower=$(echo "$package" | tr '[:upper:]' '[:lower:]')
+    if python3 -c "import ${package_lower}" 2>/dev/null; then
         print_success "${package} 已安装"
     else
         print_error "${package} 未安装"
@@ -150,7 +152,14 @@ fi
 # Run tests with coverage
 print_section "测试覆盖率分析"
 echo ""
-python3 -m pytest tests/ --cov=services --cov=repositories --cov-report=term-missing --tb=no -q 2>&1 | tail -15
+
+# 检查 pytest-cov 是否安装
+if python3 -c "import pytest_cov" 2>/dev/null; then
+    python3 -m pytest tests/ --cov=services --cov=repositories --cov-report=term-missing --tb=no -q 2>&1 | tail -15
+else
+    print_warning "pytest-cov 未安装，跳过覆盖率分析"
+    print_warning "安装命令: pip install pytest-cov"
+fi
 
 # Initialize database
 print_section "初始化数据库"

@@ -62,7 +62,33 @@ main/
 
 ## 快速开始 (Quick Start)
 
-### 一键验证与启动 (One-Command Verification & Launch)
+### 方式一：Docker 一键启动 (Recommended)
+
+```bash
+# 构建并启动容器
+docker compose up
+
+# 或者后台运行
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+
+# 停止容器
+docker compose down
+```
+
+Docker 方式会自动：
+- ✅ 安装所有依赖
+- ✅ 初始化数据库
+- ✅ 加载样本数据
+- ✅ 启动应用程序
+
+**注意**：Docker 方式适用于服务器部署。桌面 GUI 需要 X11 转发或使用方式二。
+
+### 方式二：本地安装与启动
+
+#### 一键验证与启动 (One-Command Verification & Launch)
 
 ```bash
 ./verify_platform.sh
@@ -81,6 +107,18 @@ This beautiful script will:
 Then start the application:
 
 ```bash
+# Linux/macOS
+./start.sh
+
+# Windows
+start.bat
+
+# Or directly
+python3 app.py
+```
+
+#### 手动安装步骤 (Manual Installation Steps)
+
 python app.py
 ```
 

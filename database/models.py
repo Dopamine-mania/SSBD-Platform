@@ -194,3 +194,21 @@ class AuditLog(Base):
     # Relationships
     user = relationship("User", back_populates="audit_logs")
 
+class Notification(Base):
+    """通知消息表"""
+    __tablename__ = 'notifications'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)  # 接收通知的用户
+    title = Column(String(200), nullable=False)  # 通知标题
+    message = Column(Text, nullable=False)  # 通知内容
+    notification_type = Column(String(50), nullable=False)  # 通知类型：LATE_ARRIVAL, BOOKING_REMINDER, SYSTEM
+    related_entity_type = Column(String(50))  # 关联实体类型：Booking, Order
+    related_entity_id = Column(Integer)  # 关联实体ID
+    is_read = Column(Boolean, default=False)  # 是否已读
+    created_at = Column(DateTime, default=datetime.utcnow)
+    read_at = Column(DateTime, nullable=True)  # 阅读时间
+
+    # Relationships
+    user = relationship("User")
+

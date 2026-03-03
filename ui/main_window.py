@@ -216,6 +216,12 @@ class MainWindow(QMainWindow):
             backup_btn.clicked.connect(self.handle_backup)
             layout.addWidget(backup_btn)
 
+            # Database restore button (admin only)
+            restore_btn = QPushButton("数据库恢复")
+            restore_btn.setFixedSize(200, 50)
+            restore_btn.clicked.connect(self.handle_restore)
+            layout.addWidget(restore_btn)
+
         layout.addStretch()
 
         return page
@@ -285,6 +291,91 @@ class MainWindow(QMainWindow):
                 self,
                 "备份失败",
                 f"数据库备份失败:\n{str(e)}"
+            )
+
+    def handle_restore(self):
+        """Handle database restore."""
+        try:
+            from utils.file_utils import restore_file
+            from PySide6.QtWidgets import QFileDialog
+            import os
+
+            # 选择备份文件
+            backup_dir = os.path.join(os.path.dirname(DATABASE_PATH), "backups")
+            if not os.path.exists(backup_dir):
+                QMessageBox.warning(
+                    self,
+                    "无备份文件",
+                    "备份目录不存在，请先进行数据库备份"
+                )
+                return
+
+            backup_file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                "选择备份文件",
+                backup_dir,
+                "数据库备份文件 (*.db)"
+            )
+
+            if not backup_file_path:
+                return  # 用户取消
+
+            # 二次确认
+            reply = QMessageBox.warning(
+                self,
+                "确认恢复",
+                f"确定要从以下备份恢复数据库吗？\n\n{os.path.basename(backup_file_path)}\n\n"
+                "警告：当前数据库将被覆盖，此操作不可撤销！\n建议先备份当前数据库。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply != QMessageBox.Yes:
+                return
+
+            # 执行恢复
+            restore_file(backup_file_path, DATABASE_PATH)
+
+            # Log restore action
+            try:
+                with db.get_session() as session:
+                    from services.audit_service import AuditService
+                    from repositories.audit_repository import AuditLogRepository
+
+                    audit_service = AuditService(AuditLogRepository(session))
+                    audit_service.log_database_restore(self.current_user.id, backup_file_path)
+            except Exception as e:
+                logger.warning(f"Failed to log restore action: {e}")
+
+            QMessageBox.information(
+                self,
+                "恢复成功",
+                f"数据库已从备份恢复:\n{os.path.basename(backup_file_path)}\n\n"
+                "请重新启动应用程序以加载恢复的数据。"
+            )
+            logger.info(f"Database restored from: {backup_file_path}")
+
+            # 提示重启
+            reply = QMessageBox.question(
+                self,
+                "重启应用",
+                "是否立即重启应用程序？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.Yes:
+                import sys
+                from PySide6.QtWidgets import QApplication
+                QApplication.quit()
+                os.execl(sys.executable, sys.executable, *sys.argv)
+
+        except Exception as e:
+            logger.error(f"Restore failed: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "恢复失败",
+                f"数据库恢复失败:\n{str(e)}"
             )
 
     def handle_logout(self):

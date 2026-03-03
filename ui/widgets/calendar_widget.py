@@ -6,8 +6,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QLabel, QHeaderView, QMessageBox, QToolTip, QDateEdit
 )
-from PySide6.QtCore import Qt, QPoint, QRect
-from PySide6.QtGui import QColor, QBrush, QPainter, QPen
+from PySide6.QtCore import Qt, QPoint, QRect, QEvent
+from PySide6.QtGui import QColor, QBrush, QPainter, QPen, QMouseEvent
 
 from database.models import User, Booking, BookingStatus
 from database.connection import db
@@ -17,6 +17,81 @@ from services.booking_service import BookingService, BookingConflictError
 from ui.dialogs.booking_dialog import BookingDialog
 
 logger = logging.getLogger(__name__)
+
+
+class CalendarViewport(QWidget):
+    """自定义 viewport 用于绘制拖拽预览"""
+
+    def __init__(self, calendar_widget, parent=None):
+        super().__init__(parent)
+        self.calendar_widget = calendar_widget
+
+    def paintEvent(self, event):
+        """绘制拖拽预览"""
+        super().paintEvent(event)
+
+        if not self.calendar_widget.is_dragging:
+            return
+
+        if not self.calendar_widget.drag_start_cell or not self.calendar_widget.drag_current_cell:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # 获取拖拽范围
+        start_row, start_col = self.calendar_widget.drag_start_cell
+        end_row, end_col = self.calendar_widget.drag_current_cell
+
+        # 确保起始行小于结束行
+        if start_row > end_row:
+            start_row, end_row = end_row, start_row
+
+        # 计算矩形区域
+        table = self.calendar_widget.calendar_table
+        start_item = table.item(start_row, start_col)
+        end_item = table.item(end_row, end_col)
+
+        if not start_item or not end_item:
+            return
+
+        start_rect = table.visualItemRect(start_item)
+        end_rect = table.visualItemRect(end_item)
+
+        # 合并矩形
+        preview_rect = QRect(
+            start_rect.left(),
+            start_rect.top(),
+            start_rect.width(),
+            end_rect.bottom() - start_rect.top()
+        )
+
+        # 检查冲突
+        start_time = self.calendar_widget.row_to_time(start_row)
+        end_time = self.calendar_widget.row_to_time(end_row + 1)
+        resource_id = self.calendar_widget.resources[start_col - 1].id
+        has_conflict = self.calendar_widget.check_time_conflict(start_time, end_time, resource_id)
+
+        # 选择颜色
+        if has_conflict:
+            color = self.calendar_widget.COLOR_DRAG_CONFLICT
+            pen_color = QColor(231, 76, 60)  # Red
+        else:
+            color = self.calendar_widget.COLOR_DRAG_PREVIEW
+            pen_color = QColor(52, 152, 219)  # Blue
+
+        # 绘制预览矩形
+        painter.fillRect(preview_rect, QBrush(color))
+        painter.setPen(QPen(pen_color, 2, Qt.DashLine))
+        painter.drawRect(preview_rect)
+
+        # 绘制时间文本
+        painter.setPen(QPen(Qt.white))
+        time_text = f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
+        painter.drawText(preview_rect, Qt.AlignCenter, time_text)
+
+        painter.end()
+
 
 class CalendarWidget(QWidget):
     """Calendar widget with drag-and-drop booking functionality."""
@@ -30,6 +105,8 @@ class CalendarWidget(QWidget):
     COLOR_PENDING = QColor(241, 196, 15)        # Yellow
     COLOR_CONFLICT = QColor(231, 76, 60)        # Red
     COLOR_HOVER = QColor(149, 165, 166, 100)    # Gray transparent
+    COLOR_DRAG_PREVIEW = QColor(52, 152, 219, 100)  # Semi-transparent blue
+    COLOR_DRAG_CONFLICT = QColor(231, 76, 60, 150)  # Semi-transparent red
 
     def __init__(self, current_user: User, parent=None):
         super().__init__(parent)
@@ -39,9 +116,12 @@ class CalendarWidget(QWidget):
         self.bookings = []
 
         # Drag state
-        self.drag_start_cell = None
-        self.drag_current_cell = None
+        self.drag_start_cell = None  # (row, col)
+        self.drag_current_cell = None  # (row, col)
         self.is_dragging = False
+        self.drag_start_pos = None  # QPoint
+        self.dragging_booking = None  # Booking being dragged
+        self.drag_mode = None  # 'create' or 'move'
 
         self.setup_ui()
         self.load_data()
@@ -81,6 +161,11 @@ class CalendarWidget(QWidget):
         next_btn.clicked.connect(self.next_day)
         header_layout.addWidget(next_btn)
 
+        # Copy last week button
+        copy_week_btn = QPushButton("📋 复制上周排班")
+        copy_week_btn.clicked.connect(self.copy_last_week_schedule)
+        header_layout.addWidget(copy_week_btn)
+
         # Refresh button
         refresh_btn = QPushButton("🔄 刷新")
         refresh_btn.clicked.connect(self.load_data)
@@ -114,12 +199,16 @@ class CalendarWidget(QWidget):
         self.calendar_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.calendar_table.cellEntered.connect(self.on_cell_hover)
         self.calendar_table.cellClicked.connect(self.on_cell_clicked)
-        self.calendar_table.viewport().installEventFilter(self)
+
+        # 设置自定义 viewport 用于绘制拖拽预览
+        custom_viewport = CalendarViewport(self)
+        self.calendar_table.setViewport(custom_viewport)
+        custom_viewport.installEventFilter(self)
 
         layout.addWidget(self.calendar_table)
 
         # Info label
-        self.info_label = QLabel("提示: 点击空白单元格创建预约，点击已有预约查看详情")
+        self.info_label = QLabel("提示: 拖拽创建预约，点击已有预约查看详情，拖动预约块调整时间")
         self.info_label.setStyleSheet("color: #7f8c8d; font-style: italic;")
         layout.addWidget(self.info_label)
 
@@ -378,5 +467,312 @@ class CalendarWidget(QWidget):
 
     def eventFilter(self, obj, event):
         """Event filter for drag-and-drop."""
-        # TODO: Implement drag-and-drop in future enhancement
+        if obj == self.calendar_table.viewport():
+            if event.type() == QEvent.MouseButtonPress:
+                return self.handle_mouse_press(event)
+            elif event.type() == QEvent.MouseMove:
+                return self.handle_mouse_move(event)
+            elif event.type() == QEvent.MouseButtonRelease:
+                return self.handle_mouse_release(event)
+            elif event.type() == QEvent.Paint and self.is_dragging:
+                # Trigger custom paint for drag preview
+                return False
         return super().eventFilter(obj, event)
+
+    def handle_mouse_press(self, event: QMouseEvent) -> bool:
+        """处理鼠标按下事件 - 开始拖拽"""
+        if event.button() != Qt.LeftButton:
+            return False
+
+        # 获取点击的单元格
+        pos = event.pos()
+        row = self.calendar_table.rowAt(pos.y())
+        col = self.calendar_table.columnAt(pos.x())
+
+        # 忽略时间列
+        if col <= 0 or row < 0:
+            return False
+
+        # 记录拖拽起始位置
+        self.drag_start_cell = (row, col)
+        self.drag_current_cell = (row, col)
+        self.drag_start_pos = pos
+        self.is_dragging = True
+
+        # 检查是否点击了已有预约
+        item = self.calendar_table.item(row, col)
+        if item:
+            data = item.data(Qt.UserRole)
+            bookings = data.get('bookings', [])
+            if bookings:
+                # 拖动已有预约
+                self.dragging_booking = bookings[0]
+                self.drag_mode = 'move'
+                logger.info(f"开始拖动预约: {self.dragging_booking.id}")
+            else:
+                # 创建新预约
+                self.dragging_booking = None
+                self.drag_mode = 'create'
+                logger.info(f"开始创建预约拖拽: row={row}, col={col}")
+
+        return True
+
+    def handle_mouse_move(self, event: QMouseEvent) -> bool:
+        """处理鼠标移动事件 - 显示拖拽预览"""
+        if not self.is_dragging:
+            return False
+
+        # 获取当前单元格
+        pos = event.pos()
+        row = self.calendar_table.rowAt(pos.y())
+        col = self.calendar_table.columnAt(pos.x())
+
+        # 限制在有效范围内
+        if col <= 0:
+            col = 1
+        if row < 0:
+            row = 0
+        if col >= self.calendar_table.columnCount():
+            col = self.calendar_table.columnCount() - 1
+        if row >= self.calendar_table.rowCount():
+            row = self.calendar_table.rowCount() - 1
+
+        # 更新当前单元格
+        if (row, col) != self.drag_current_cell:
+            self.drag_current_cell = (row, col)
+            self.calendar_table.viewport().update()  # 触发重绘
+
+        return True
+
+    def handle_mouse_release(self, event: QMouseEvent) -> bool:
+        """处理鼠标释放事件 - 完成拖拽"""
+        if not self.is_dragging:
+            return False
+
+        self.is_dragging = False
+
+        # 检查是否是简单点击（没有拖拽）
+        if self.drag_start_cell == self.drag_current_cell:
+            # 简单点击，使用原有逻辑
+            row, col = self.drag_start_cell
+            self.on_cell_clicked(row, col)
+            self.reset_drag_state()
+            return True
+
+        # 获取拖拽范围
+        start_row, start_col = self.drag_start_cell
+        end_row, end_col = self.drag_current_cell
+
+        # 确保在同一列（同一资源）
+        if start_col != end_col and self.drag_mode == 'create':
+            QMessageBox.warning(self, "拖拽错误", "只能在同一资源列内拖拽创建预约")
+            self.reset_drag_state()
+            self.calendar_table.viewport().update()
+            return True
+
+        # 确保起始行小于结束行
+        if start_row > end_row:
+            start_row, end_row = end_row, start_row
+
+        # 计算时间范围
+        start_time = self.row_to_time(start_row)
+        end_time = self.row_to_time(end_row + 1)  # +1 因为要包含结束行
+
+        # 获取资源ID
+        resource_id = self.resources[start_col - 1].id
+
+        # 检查冲突
+        has_conflict = self.check_time_conflict(start_time, end_time, resource_id)
+
+        if has_conflict:
+            QMessageBox.warning(
+                self,
+                "时间冲突",
+                f"所选时间段 {start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')} 已有预约，请选择其他时间"
+            )
+            self.reset_drag_state()
+            self.calendar_table.viewport().update()
+            return True
+
+        # 根据拖拽模式执行操作
+        if self.drag_mode == 'create':
+            # 创建新预约
+            self.create_booking_from_drag(start_time, end_time, resource_id)
+        elif self.drag_mode == 'move':
+            # 移动已有预约
+            self.move_booking(self.dragging_booking, start_time, end_time)
+
+        self.reset_drag_state()
+        self.calendar_table.viewport().update()
+        return True
+
+    def reset_drag_state(self):
+        """重置拖拽状态"""
+        self.drag_start_cell = None
+        self.drag_current_cell = None
+        self.is_dragging = False
+        self.drag_start_pos = None
+        self.dragging_booking = None
+        self.drag_mode = None
+
+    def check_time_conflict(self, start_time: datetime, end_time: datetime, resource_id: int) -> bool:
+        """检查时间冲突"""
+        for booking in self.bookings:
+            # 跳过正在拖动的预约
+            if self.dragging_booking and booking.id == self.dragging_booking.id:
+                continue
+
+            # 检查是否使用相同资源
+            booking_resource_ids = [br.resource_id for br in booking.booking_resources]
+            if resource_id not in booking_resource_ids:
+                continue
+
+            # 检查时间重叠
+            if (start_time < booking.end_time and end_time > booking.start_time):
+                return True
+
+        return False
+
+    def create_booking_from_drag(self, start_time: datetime, end_time: datetime, resource_id: int):
+        """从拖拽创建预约"""
+        dialog = BookingDialog(
+            current_user=self.current_user,
+            default_resource_id=resource_id,
+            default_start_time=start_time,
+            default_end_time=end_time,
+            parent=self
+        )
+
+        if dialog.exec():
+            self.load_data()  # 刷新日历
+
+    def move_booking(self, booking: Booking, new_start_time: datetime, new_end_time: datetime):
+        """移动已有预约"""
+        try:
+            with db.get_session() as session:
+                booking_service = BookingService(session)
+
+                # 更新预约时间
+                booking.start_time = new_start_time
+                booking.end_time = new_end_time
+
+                session.commit()
+
+                QMessageBox.information(
+                    self,
+                    "移动成功",
+                    f"预约已移动到 {new_start_time.strftime('%H:%M')} - {new_end_time.strftime('%H:%M')}"
+                )
+
+                self.load_data()  # 刷新日历
+
+        except Exception as e:
+            logger.error(f"移动预约失败: {e}", exc_info=True)
+            QMessageBox.critical(self, "移动失败", f"移动预约失败:\n{str(e)}")
+
+    def copy_last_week_schedule(self):
+        """复制上周排班到本周"""
+        try:
+            # 确认操作
+            reply = QMessageBox.question(
+                self,
+                "确认复制",
+                "确定要复制上周的排班到本周吗？\n\n注意：\n• 只会复制上周同一天的预约\n• 如果本周已有预约，可能会产生冲突\n• 冲突的预约将被跳过",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply != QMessageBox.Yes:
+                return
+
+            with db.get_session() as session:
+                booking_repo = BookingRepository(session)
+                booking_service = BookingService(booking_repo)
+
+                # 计算上周同一天的日期
+                last_week_date = self.current_date.addDays(-7)
+
+                # 获取上周同一天的所有预约
+                last_week_start = datetime.combine(last_week_date.toPython(), datetime.min.time())
+                last_week_end = datetime.combine(last_week_date.toPython(), datetime.max.time())
+
+                last_week_bookings = booking_repo.get_by_date_range(last_week_start, last_week_end)
+
+                if not last_week_bookings:
+                    QMessageBox.information(
+                        self,
+                        "无可复制预约",
+                        f"上周 {last_week_date.toString('yyyy-MM-dd')} 没有预约记录"
+                    )
+                    return
+
+                # 复制预约
+                copied_count = 0
+                skipped_count = 0
+                error_messages = []
+
+                for old_booking in last_week_bookings:
+                    # 跳过已取消的预约
+                    if old_booking.status == BookingStatus.CANCELLED:
+                        continue
+
+                    # 计算新的时间（加7天）
+                    time_diff = old_booking.end_time - old_booking.start_time
+                    new_start = old_booking.start_time + timedelta(days=7)
+                    new_end = old_booking.end_time + timedelta(days=7)
+
+                    # 获取资源ID列表
+                    resource_ids = [br.resource_id for br in old_booking.booking_resources]
+
+                    try:
+                        # 检查冲突
+                        conflicts = booking_service.check_conflicts(resource_ids, new_start, new_end)
+
+                        if conflicts:
+                            skipped_count += 1
+                            error_messages.append(
+                                f"• {old_booking.customer.name} "
+                                f"{new_start.strftime('%H:%M')}-{new_end.strftime('%H:%M')} "
+                                f"(冲突)"
+                            )
+                            continue
+
+                        # 创建新预约
+                        new_booking = booking_service.create_booking(
+                            customer_id=old_booking.customer_id,
+                            resource_ids=resource_ids,
+                            start_time=new_start,
+                            end_time=new_end,
+                            engineer_id=old_booking.engineer_id,
+                            notes=f"[复制自上周] {old_booking.notes or ''}",
+                            created_by=self.current_user.id
+                        )
+
+                        copied_count += 1
+
+                    except Exception as e:
+                        skipped_count += 1
+                        error_messages.append(
+                            f"• {old_booking.customer.name} "
+                            f"{new_start.strftime('%H:%M')}-{new_end.strftime('%H:%M')} "
+                            f"(错误: {str(e)})"
+                        )
+                        logger.error(f"复制预约失败: {e}", exc_info=True)
+
+                # 显示结果
+                result_message = f"复制完成！\n\n成功复制: {copied_count} 个预约\n跳过: {skipped_count} 个预约"
+
+                if error_messages:
+                    result_message += "\n\n跳过的预约:\n" + "\n".join(error_messages[:10])
+                    if len(error_messages) > 10:
+                        result_message += f"\n... 还有 {len(error_messages) - 10} 个"
+
+                if copied_count > 0:
+                    QMessageBox.information(self, "复制成功", result_message)
+                    self.load_data()  # 刷新日历
+                else:
+                    QMessageBox.warning(self, "复制失败", result_message)
+
+        except Exception as e:
+            logger.error(f"复制上周排班失败: {e}", exc_info=True)
+            QMessageBox.critical(self, "复制失败", f"复制上周排班失败:\n{str(e)}")

@@ -16,15 +16,17 @@ class BookingConflictError(Exception):
 class BookingService:
     """Service for booking management."""
 
-    def __init__(self, booking_repo: BookingRepository, audit_service=None):
+    def __init__(self, booking_repo: BookingRepository, audit_service=None, notification_service=None):
         """Initialize booking service.
 
         Args:
             booking_repo: Booking repository
             audit_service: Optional audit service for logging
+            notification_service: Optional notification service for sending notifications
         """
         self.booking_repo = booking_repo
         self.audit_service = audit_service
+        self.notification_service = notification_service
 
     def create_booking(
         self,
@@ -204,6 +206,20 @@ class BookingService:
                 late_minutes=late_minutes
             )
             logger.warning(f"Late arrival for booking {booking_id}: {late_minutes} minutes")
+
+            # 通知工程师（如果有指定工程师）
+            if booking.engineer_id and self.notification_service:
+                try:
+                    self.notification_service.notify_late_arrival(
+                        engineer_id=booking.engineer_id,
+                        booking_id=booking_id,
+                        customer_name=booking.customer.name,
+                        scheduled_time=booking.start_time,
+                        late_minutes=late_minutes
+                    )
+                    logger.info(f"Late arrival notification sent to engineer {booking.engineer_id}")
+                except Exception as e:
+                    logger.error(f"Failed to send late arrival notification: {e}")
 
         # Create time log
         time_log = TimeLog(
